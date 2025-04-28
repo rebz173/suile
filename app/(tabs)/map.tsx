@@ -1,7 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Dimensions, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { Search, Layers, MapPin, Navigation, Plus, Minus } from 'lucide-react-native';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import * as Location from 'expo-location';
 import Colors from '@/constants/Colors';
 import IncidentMapMarker from '@/components/IncidentMapMarker';
 
@@ -49,46 +51,61 @@ const mockIncidents = [
   },
 ];
 
-// This is a simplified map implementation for demo purposes
-// In a real app, you would use react-native-maps or similar
 export default function MapScreen() {
-  const [mapType, setMapType] = useState('standard');
-  const [zoomLevel, setZoomLevel] = useState(15);
+  const [mapType, setMapType] = useState<'standard' | 'satellite'>('standard');
   const [selectedIncident, setSelectedIncident] = useState<string | null>(null);
+  const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
+  const [locationPermission, setLocationPermission] = useState<boolean>(false);
+  const mapRef = useRef<MapView>(null);
   
-  const mapWidth = Dimensions.get('window').width;
-  const mapHeight = Dimensions.get('window').height - 120;
+  useEffect(() => {
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationPermission(status === 'granted');
+      
+      if (status === 'granted') {
+        let location = await Location.getCurrentPositionAsync({});
+        setUserLocation(location);
+      }
+    })();
+  }, []);
 
   const handleIncidentPress = (id: string) => {
     setSelectedIncident(id);
-    // In a real app, you would center the map on this incident
+    const incident = mockIncidents.find(i => i.id === id);
+    if (incident && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: incident.location.lat,
+        longitude: incident.location.lon,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      });
+    }
   };
 
   const handleViewIncident = (id: string) => {
     router.push(`/(details)/incident/${id}`);
   };
 
-  const zoomIn = () => {
-    setZoomLevel(Math.min(18, zoomLevel + 1));
-  };
-
-  const zoomOut = () => {
-    setZoomLevel(Math.max(10, zoomLevel - 1));
-  };
-
   const toggleMapType = () => {
     setMapType(mapType === 'standard' ? 'satellite' : 'standard');
+  };
+
+  const centerOnUser = () => {
+    if (userLocation && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: userLocation.coords.latitude,
+        longitude: userLocation.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      });
+    }
   };
 
   // Get selected incident details
   const selectedIncidentDetails = mockIncidents.find(
     incident => incident.id === selectedIncident
   );
-  
-  // Convert zoom level to scale for visual effect
-  const getScaleFromZoom = (zoom: number) => {
-    return (zoom - 10) / 8; // Scale from 0 to 1 for zoom levels 10-18
-  };
 
   return (
     <View style={styles.container}>
@@ -99,65 +116,59 @@ export default function MapScreen() {
         </TouchableOpacity>
       </View>
       
-      {/* This would be a real map component in production */}
-      <View 
-        style={[
-          styles.mapContainer, 
-          { 
-            backgroundColor: mapType === 'standard' ? '#1c2028' : '#1a1a1a',
-          }
-        ]}
+      <MapView
+        ref={mapRef}
+        style={styles.map}
+        provider={PROVIDER_GOOGLE}
+        mapType={mapType}
+        showsUserLocation={true}
+        showsMyLocationButton={false}
+        initialRegion={
+          userLocation
+            ? {
+                latitude: userLocation.coords.latitude,
+                longitude: userLocation.coords.longitude,
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01,
+              }
+            : {
+                latitude: 53.3498,
+                longitude: -6.2603,
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01,
+              }
+        }
       >
-        {/* Map markers - positioned absolutely for demo */}
-        {mockIncidents.map((incident, index) => {
-          // In a real app, these would be positioned based on coordinates
-          // Here we're just spreading them out for visual demonstration
-          const xPos = 40 + ((index % 3) * (mapWidth - 80) / 2);
-          const yPos = 100 + (Math.floor(index / 3) * 150);
-          
-          return (
-            <View 
-              key={incident.id}
-              style={[
-                styles.markerContainer,
-                {
-                  left: xPos,
-                  top: yPos,
-                  transform: [{ scale: selectedIncident === incident.id ? 1.2 : 1 }]
-                }
-              ]}
-            >
-              <IncidentMapMarker
-                type={incident.type as any}
-                severity={incident.severity as any}
-                isLive={incident.isLive}
-                onPress={() => handleIncidentPress(incident.id)}
-              />
-            </View>
-          );
-        })}
+        {mockIncidents.map((incident) => (
+          <Marker
+            key={incident.id}
+            coordinate={{
+              latitude: incident.location.lat,
+              longitude: incident.location.lon,
+            }}
+            onPress={() => handleIncidentPress(incident.id)}
+          >
+            <IncidentMapMarker
+              type={incident.type as any}
+              severity={incident.severity as any}
+              isLive={incident.isLive}
+              onPress={() => handleIncidentPress(incident.id)}
+            />
+          </Marker>
+        ))}
+      </MapView>
         
-        {/* Map controls */}
-        <View style={styles.mapControls}>
-          <TouchableOpacity style={styles.mapButton} onPress={toggleMapType}>
-            <Layers color={Colors.white} size={22} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.mapButton} onPress={() => {}}>
-            <MapPin color={Colors.white} size={22} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.mapButton} onPress={() => {}}>
-            <Navigation color={Colors.white} size={22} />
-          </TouchableOpacity>
-        </View>
-        
-        <View style={styles.zoomControls}>
-          <TouchableOpacity style={styles.zoomButton} onPress={zoomIn}>
-            <Plus color={Colors.white} size={20} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.zoomButton} onPress={zoomOut}>
-            <Minus color={Colors.white} size={20} />
-          </TouchableOpacity>
-        </View>
+      {/* Map controls */}
+      <View style={styles.mapControls}>
+        <TouchableOpacity style={styles.mapButton} onPress={toggleMapType}>
+          <Layers color={Colors.white} size={22} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.mapButton} onPress={centerOnUser}>
+          <MapPin color={Colors.white} size={22} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.mapButton} onPress={() => {}}>
+          <Navigation color={Colors.white} size={22} />
+        </TouchableOpacity>
       </View>
       
       {/* Incident details panel */}
@@ -222,36 +233,18 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 16,
   },
-  mapContainer: {
+  map: {
     flex: 1,
-    position: 'relative',
-  },
-  markerContainer: {
-    position: 'absolute',
-    zIndex: 1,
   },
   mapControls: {
     position: 'absolute',
     right: 16,
-    top: 16,
+    top: 120,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderRadius: 8,
     overflow: 'hidden',
   },
   mapButton: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  zoomControls: {
-    position: 'absolute',
-    right: 16,
-    bottom: 120,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  zoomButton: {
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
@@ -305,13 +298,13 @@ const styles = StyleSheet.create({
   },
   viewButton: {
     backgroundColor: Colors.primary,
-    padding: 14,
+    padding: 12,
     borderRadius: 8,
     alignItems: 'center',
   },
   viewButtonText: {
     color: Colors.white,
-    fontWeight: 'bold',
     fontSize: 16,
+    fontWeight: 'bold',
   },
 });

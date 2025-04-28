@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { StyleSheet, View, Text, TextInput, TouchableOpacity, ScrollView, Image, Platform } from 'react-native';
 import { Camera as CameraIcon, MapPin, X, Plus, TriangleAlert as AlertTriangle } from 'lucide-react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import * as MediaLibrary from 'expo-media-library';
 import Colors from '@/constants/Colors';
 
 const incidentTypes = [
@@ -21,10 +22,16 @@ export default function ReportScreen() {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraType, setCameraType] = useState<CameraType>('back');
   const [permission, requestPermission] = useCameraPermissions();
+  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
+  const cameraRef = useRef<CameraView>(null);
 
   const handleOpenCamera = async () => {
     if (!permission?.granted) {
       await requestPermission();
+      return;
+    }
+    if (!mediaPermission?.granted) {
+      await requestMediaPermission();
       return;
     }
     setIsCameraOpen(true);
@@ -34,12 +41,27 @@ export default function ReportScreen() {
     setIsCameraOpen(false);
   };
 
-  const handleCapture = () => {
-    // In a real app, this would capture a photo from the camera
-    // For demo purposes, we'll add a mock photo URL
-    const mockPhotoUrl = 'https://images.pexels.com/photos/2577274/pexels-photo-2577274.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2';
-    setPhotos([...photos, mockPhotoUrl]);
-    setIsCameraOpen(false);
+  const handleCapture = async () => {
+    if (cameraRef.current) {
+      try {
+        const photo = await cameraRef.current.takePictureAsync();
+        
+        // Save to media library
+        const asset = await MediaLibrary.createAssetAsync(photo.uri);
+        const album = await MediaLibrary.getAlbumAsync('Suile');
+        if (album === null) {
+          await MediaLibrary.createAlbumAsync('Suile', asset, false);
+        } else {
+          await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+        }
+        
+        setPhotos([...photos, photo.uri]);
+        setIsCameraOpen(false);
+      } catch (error) {
+        console.error('Error taking photo:', error);
+        alert('Failed to take photo. Please try again.');
+      }
+    }
   };
 
   const toggleCameraType = () => {
@@ -78,6 +100,7 @@ export default function ReportScreen() {
     return (
       <View style={styles.cameraContainer}>
         <CameraView 
+          ref={cameraRef}
           style={styles.camera}
           facing={cameraType}
         >
